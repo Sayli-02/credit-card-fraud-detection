@@ -1,0 +1,5 @@
+Amount_Category,Min_Amount_EUR,Max_Amount_EUR,Total_Transactions,Legit_Transactions,Fraud_Transactions,Fraud_Rate_Pct,Total_Amount_EUR,Fraud_Amount_EUR,Avg_Amount_EUR
+Low (€0 - €20),0.0,20.0,138489,138229,260,0.1877,967250.95,798.75,6.98
+Medium (€20 - €100),20.01,100.0,88838,88750,88,0.0991,4492120.38,6057.71,50.57
+High (€100 - €500),100.01,500.0,47290,47199,91,0.1924,10053903.15,21052.28,212.6
+Very High (€500+),500.01,25691.16,9109,9075,34,0.3733,9588727.2,30682.65,1052.67

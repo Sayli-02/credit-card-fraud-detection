@@ -1,0 +1,13 @@
+Model,Actual_Class,Predicted_Class,Metric_Label,Count
+Logistic Regression (Baseline),Legitimate (0),Legitimate (0),True Negative (TN),56641
+Logistic Regression (Baseline),Legitimate (0),Fraudulent (1),False Positive (FP - False Alert),10
+Logistic Regression (Baseline),Fraudulent (1),Legitimate (0),False Negative (FN - Missed Fraud),40
+Logistic Regression (Baseline),Fraudulent (1),Fraudulent (1),True Positive (TP - Caught Fraud),55
+Logistic Regression (SMOTE),Legitimate (0),Legitimate (0),True Negative (TN),55169
+Logistic Regression (SMOTE),Legitimate (0),Fraudulent (1),False Positive (FP - False Alert),1482
+Logistic Regression (SMOTE),Fraudulent (1),Legitimate (0),False Negative (FN - Missed Fraud),12
+Logistic Regression (SMOTE),Fraudulent (1),Fraudulent (1),True Positive (TP - Caught Fraud),83
+Random Forest (SMOTE),Legitimate (0),Legitimate (0),True Negative (TN),56626
+Random Forest (SMOTE),Legitimate (0),Fraudulent (1),False Positive (FP - False Alert),25
+Random Forest (SMOTE),Fraudulent (1),Legitimate (0),False Negative (FN - Missed Fraud),22
+Random Forest (SMOTE),Fraudulent (1),Fraudulent (1),True Positive (TP - Caught Fraud),73
