@@ -1,0 +1,185 @@
+{
+    "train_rows": 1296675,
+    "test_rows": 555719,
+    "train_columns": [
+        "Unnamed: 0",
+        "trans_date_trans_time",
+        "cc_num",
+        "merchant",
+        "category",
+        "amt",
+        "first",
+        "last",
+        "gender",
+        "street",
+        "city",
+        "state",
+        "zip",
+        "lat",
+        "long",
+        "city_pop",
+        "job",
+        "dob",
+        "trans_num",
+        "unix_time",
+        "merch_lat",
+        "merch_long",
+        "is_fraud",
+        "hour"
+    ],
+    "train_legit_count": 1289169,
+    "train_fraud_count": 7506,
+    "train_fraud_rate_pct": 0.5789,
+    "test_legit_count": 553574,
+    "test_fraud_count": 2145,
+    "test_fraud_rate_pct": 0.386,
+    "top_categories_by_fraud_rate": [
+        {
+            "category": "shopping_net",
+            "fraud_rate_pct": 1.7561485703740916,
+            "fraud_txns": 1713
+        },
+        {
+            "category": "misc_net",
+            "fraud_rate_pct": 1.4457945549638946,
+            "fraud_txns": 915
+        },
+        {
+            "category": "grocery_pos",
+            "fraud_rate_pct": 1.4097607531665022,
+            "fraud_txns": 1743
+        },
+        {
+            "category": "shopping_pos",
+            "fraud_rate_pct": 0.7225383982446517,
+            "fraud_txns": 843
+        },
+        {
+            "category": "gas_transport",
+            "fraud_rate_pct": 0.4693944204346076,
+            "fraud_txns": 618
+        }
+    ],
+    "hourly_fraud_summary": [
+        {
+            "hour": 0,
+            "fraud_txns": 635,
+            "fraud_rate_pct": 1.4940473389487554
+        },
+        {
+            "hour": 1,
+            "fraud_txns": 658,
+            "fraud_rate_pct": 1.5349086752665098
+        },
+        {
+            "hour": 2,
+            "fraud_txns": 625,
+            "fraud_rate_pct": 1.4652100525131284
+        },
+        {
+            "hour": 3,
+            "fraud_txns": 609,
+            "fraud_rate_pct": 1.4239285463770488
+        },
+        {
+            "hour": 4,
+            "fraud_txns": 46,
+            "fraud_rate_pct": 0.10988223490910828
+        },
+        {
+            "hour": 5,
+            "fraud_txns": 60,
+            "fraud_rate_pct": 0.1422778686775272
+        },
+        {
+            "hour": 6,
+            "fraud_txns": 40,
+            "fraud_rate_pct": 0.09456264775413711
+        },
+        {
+            "hour": 7,
+            "fraud_txns": 56,
+            "fraud_rate_pct": 0.13269198872118096
+        },
+        {
+            "hour": 8,
+            "fraud_txns": 49,
+            "fraud_rate_pct": 0.1152805552287966
+        },
+        {
+            "hour": 9,
+            "fraud_txns": 47,
+            "fraud_rate_pct": 0.11141400971909447
+        },
+        {
+            "hour": 10,
+            "fraud_txns": 40,
+            "fraud_rate_pct": 0.09462752241489437
+        },
+        {
+            "hour": 11,
+            "fraud_txns": 42,
+            "fraud_rate_pct": 0.09980514234114349
+        },
+        {
+            "hour": 12,
+            "fraud_txns": 67,
+            "fraud_rate_pct": 0.1026709778261336
+        },
+        {
+            "hour": 13,
+            "fraud_txns": 80,
+            "fraud_rate_pct": 0.12248522521970788
+        },
+        {
+            "hour": 14,
+            "fraud_txns": 86,
+            "fraud_rate_pct": 0.132542190028512
+        },
+        {
+            "hour": 15,
+            "fraud_txns": 79,
+            "fraud_rate_pct": 0.12081173250141457
+        },
+        {
+            "hour": 16,
+            "fraud_txns": 76,
+            "fraud_rate_pct": 0.11563156133037156
+        },
+        {
+            "hour": 17,
+            "fraud_txns": 78,
+            "fraud_rate_pct": 0.11917494270435446
+        },
+        {
+            "hour": 18,
+            "fraud_txns": 81,
+            "fraud_rate_pct": 0.12263251124131354
+        },
+        {
+            "hour": 19,
+            "fraud_txns": 81,
+            "fraud_rate_pct": 0.12364901996702693
+        },
+        {
+            "hour": 20,
+            "fraud_txns": 62,
+            "fraud_rate_pct": 0.09524102122953086
+        },
+        {
+            "hour": 21,
+            "fraud_txns": 74,
+            "fraud_rate_pct": 0.11292020813941069
+        },
+        {
+            "hour": 22,
+            "fraud_txns": 1931,
+            "fraud_rate_pct": 2.882864053029172
+        },
+        {
+            "hour": 23,
+            "fraud_txns": 1904,
+            "fraud_rate_pct": 2.8373867429661424
+        }
+    ]
+}
