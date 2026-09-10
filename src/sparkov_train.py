@@ -1,19 +1,19 @@
 """
 Sparkov Fraud Detection - Training, Imbalance Handling, Benchmark & Serialization Pipeline.
 
-Implements Tasks 3 & 4:
+Implements:
 1. Loads fraudTrain.csv (train partition) and fraudTest.csv (holdout test partition).
-2. Uses unified feature_engineering.py to extract and encode features.
+2. Uses updated feature_engineering.py with date-aware age and distance metrics.
 3. Fits and builds:
    - merchant_locations.pkl (lookup table: merchant -> coords & category)
-   - fraud_encoders.pkl (category/gender encodings and column order)
+   - distance_fallback_stats.pkl (overall & category-level median distance stats)
+   - fraud_encoders.pkl (category/gender encodings and column order with unknown bucket)
    - fraud_scaler.pkl (StandardScaler fitted strictly on training data)
 4. Model Comparison:
    - Model A: Balanced Random Forest (class_weight='balanced_subsample')
    - Model B: Balanced XGBoost (scale_pos_weight, tree_method='hist')
-   - Model C: SMOTE Resampled XGBoost / RF
-5. Evaluates on full unseen test set (555,719 transactions):
-   - Precision, Recall, F1, ROC-AUC, PR-AUC, Confusion Matrix
+   - Model C: Tuned XGBoost
+5. Evaluates on full unseen test set (555,719 transactions).
 6. Saves evaluation plots and persists all required joblib .pkl artifacts to models/ and artifacts/.
 """
 
@@ -39,7 +39,6 @@ from sklearn.metrics import (
     confusion_matrix,
     classification_report
 )
-from imblearn.over_sampling import SMOTE
 import xgboost as xgb
 
 import sys
@@ -51,6 +50,7 @@ from src.feature_engineering import (
     fit_encoders,
     transform_features,
     build_merchant_lookup,
+    compute_distance_stats,
     FEATURE_COLUMNS
 )
 
@@ -71,7 +71,7 @@ def train_and_evaluate_models():
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
     
     print("=" * 80)
-    print("      TASKS 3 & 4: MODEL TRAINING, IMBALANCE BENCHMARK & SERIALIZATION    ")
+    print("      MODEL TRAINING, DISTANCE STATS & ARTIFACT SERIALIZATION             ")
     print("=" * 80)
     
     # 1. Load Raw Datasets
@@ -83,14 +83,19 @@ def train_and_evaluate_models():
     y_train = raw_train['is_fraud'].values
     y_test = raw_test['is_fraud'].values
     
-    # 2. Build Merchant Lookup & Fit Encoders
+    # 2. Build Merchant Lookup, Distance Stats & Fit Encoders
     merchant_lookup = build_merchant_lookup(raw_train)
+    distance_stats = compute_distance_stats(raw_train)
     encoder_bundle = fit_encoders(raw_train)
     
-    # Save Encoders & Merchant Locations early
+    # Save Encoders, Merchant Locations & Distance Stats
     joblib.dump(merchant_lookup, MODELS_DIR / "merchant_locations.pkl")
     joblib.dump(merchant_lookup, ARTIFACTS_DIR / "merchant_locations.pkl")
     print("Saved merchant_locations.pkl")
+    
+    joblib.dump(distance_stats, MODELS_DIR / "distance_fallback_stats.pkl")
+    joblib.dump(distance_stats, ARTIFACTS_DIR / "distance_fallback_stats.pkl")
+    print("Saved distance_fallback_stats.pkl")
     
     joblib.dump(encoder_bundle, MODELS_DIR / "fraud_encoders.pkl")
     joblib.dump(encoder_bundle, ARTIFACTS_DIR / "fraud_encoders.pkl")
@@ -134,7 +139,6 @@ def train_and_evaluate_models():
         random_state=42,
         n_jobs=-1
     )
-    # Train on training partition
     rf_model.fit(X_train_scaled, y_train)
     models["Balanced Random Forest"] = rf_model
     
@@ -144,7 +148,7 @@ def train_and_evaluate_models():
         n_estimators=150,
         max_depth=6,
         learning_rate=0.08,
-        scale_pos_weight=scale_pos_weight * 0.5, # tuned for precision-recall trade-off
+        scale_pos_weight=scale_pos_weight * 0.5,
         tree_method='hist',
         subsample=0.8,
         colsample_bytree=0.8,
@@ -155,7 +159,7 @@ def train_and_evaluate_models():
     xgb_model.fit(X_train_scaled, y_train)
     models["Balanced XGBoost"] = xgb_model
     
-    # Model 3: Standard Tuned XGBoost (High Precision Mode)
+    # Model 3: Tuned XGBoost
     print("\n[3/3] Training Tuned XGBoost Classifier...")
     xgb_tuned = xgb.XGBClassifier(
         n_estimators=150,
@@ -219,19 +223,15 @@ def train_and_evaluate_models():
         print(f"False Positives : {fp:,} out of {tn+fp:,} legit transactions ({fp/(tn+fp)*100:.3f}% FP rate)")
     
     results_df = pd.DataFrame(results)
-    print("\n--- SUMMARY BENCHMARK TABLE ---")
-    print(results_df.to_string(index=False))
     results_df.to_csv(ARTIFACTS_DIR / "sparkov_model_comparison.csv", index=False)
     
-    # 6. Select Champion Model (Optimal PR-AUC & balanced F1)
-    # Balanced XGBoost or Tuned XGBoost typically leads on PR-AUC
+    # Champion Model Selection: Balanced XGBoost
     champion_name = "Balanced XGBoost"
     champion_model = models[champion_name]
     
-    print(f"\nChampion Model Selected: {champion_name}")
     joblib.dump(champion_model, MODELS_DIR / "fraud_model.pkl")
     joblib.dump(champion_model, ARTIFACTS_DIR / "fraud_model.pkl")
-    print(f"Champion Model persisted to {MODELS_DIR / 'fraud_model.pkl'}")
+    print(f"\nChampion Model persisted to {MODELS_DIR / 'fraud_model.pkl'}")
     
     # 7. Generate Evaluation Artifacts
     # (a) Confusion Matrix Plot
@@ -256,7 +256,6 @@ def train_and_evaluate_models():
     cm_plot_path = ARTIFACTS_DIR / "sparkov_confusion_matrix.png"
     plt.savefig(cm_plot_path)
     plt.close()
-    print(f"Saved: {cm_plot_path}")
     
     # (b) ROC and PR Curves Plot
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5.5))
@@ -280,14 +279,9 @@ def train_and_evaluate_models():
     roc_pr_plot_path = ARTIFACTS_DIR / "sparkov_roc_curve.png"
     plt.savefig(roc_pr_plot_path)
     plt.close()
-    print(f"Saved: {roc_pr_plot_path}")
     
-    # (c) Feature Importance Plot for Champion Model
-    if hasattr(champion_model, 'feature_importances_'):
-        importances = champion_model.feature_importances_
-    else:
-        importances = np.zeros(len(FEATURE_COLUMNS))
-        
+    # (c) Feature Importance Plot
+    importances = champion_model.feature_importances_
     feat_imp_df = pd.DataFrame({
         'Feature': FEATURE_COLUMNS,
         'Importance': importances
@@ -318,7 +312,6 @@ def train_and_evaluate_models():
     feat_plot_path = ARTIFACTS_DIR / "sparkov_feature_importance.png"
     plt.savefig(feat_plot_path)
     plt.close()
-    print(f"Saved: {feat_plot_path}")
     
     # (d) Classification Report JSON
     champ_pred = champion_model.predict(X_test_scaled)
@@ -329,7 +322,7 @@ def train_and_evaluate_models():
     print(f"Saved: {report_path}")
     
     print("=" * 80)
-    print("TASKS 3 & 4 COMPLETED SUCCESSFULLY.")
+    print("TRAINING & SERIALIZATION COMPLETED SUCCESSFULLY.")
     print("=" * 80)
 
 

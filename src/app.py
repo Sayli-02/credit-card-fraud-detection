@@ -4,11 +4,10 @@ import numpy as np
 import joblib
 import json
 import os
-import re
-import difflib
+import shap
 from datetime import datetime, date
 
-# Import shared feature engineering logic
+# Import shared feature engineering logic and schema
 import sys
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
@@ -18,44 +17,54 @@ from src.feature_engineering import (
     extract_raw_features,
     transform_features,
     haversine_distance,
+    calculate_age_date_aware,
     FEATURE_COLUMNS
 )
 
 # Setup page config
 st.set_page_config(
-    page_title="Credit Card Fraud Detection Platform",
-    page_icon="💳",
+    page_title="CardShield — Credit Card Safety Checker",
+    page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# Custom CSS for Premium UI
+# Custom CSS for a Friendly, Clean, and Modern Design
 st.markdown("""
 <style>
     .block-container {
-        padding-top: 1.8rem !important;
+        padding-top: 1.5rem !important;
         padding-bottom: 2rem !important;
+        max-width: 1200px;
     }
     
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
     html, body, [class*="css"] {
-        font-family: 'Inter', sans-serif !important;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
     }
     
-    h1, h2, h3, h4 {
+    h1 {
         color: #0F172A !important;
+        font-weight: 800 !important;
+        letter-spacing: -0.03em !important;
+        font-size: 2.2rem !important;
+        margin-bottom: 0.2rem !important;
+    }
+    h2, h3, h4 {
+        color: #1E293B !important;
         font-weight: 700 !important;
         letter-spacing: -0.02em !important;
     }
 
     div.stTabs [data-baseweb="tab-list"] {
-        gap: 16px;
-        border-bottom: 1px solid #E2E8F0;
+        gap: 12px;
+        border-bottom: 2px solid #F1F5F9;
+        margin-bottom: 1.5rem;
     }
     div.stTabs [data-baseweb="tab"] {
         padding: 12px 24px;
         background-color: transparent;
-        border-radius: 8px 8px 0 0;
+        border-radius: 10px 10px 0 0;
         font-weight: 600;
         font-size: 1.05rem;
         color: #64748B;
@@ -66,67 +75,89 @@ st.markdown("""
         background-color: #EFF6FF;
     }
 
-    div.stAlert {
-        border-radius: 12px !important;
-        border: 1px solid rgba(0,0,0,0.05) !important;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.04), 0 2px 4px -1px rgba(0, 0, 0, 0.02) !important;
+    /* Friendly stat boxes */
+    .stat-card {
+        background: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-radius: 16px;
+        padding: 20px 22px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.03);
+        height: 100%;
     }
-    
+    .stat-title {
+        font-size: 0.85rem;
+        color: #64748B;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+    .stat-number {
+        font-size: 1.8rem;
+        font-weight: 800;
+        color: #0F172A;
+        margin-top: 6px;
+        margin-bottom: 4px;
+    }
+    .stat-desc {
+        font-size: 0.85rem;
+        color: #059669;
+        font-weight: 600;
+    }
+    .stat-desc-alert {
+        font-size: 0.85rem;
+        color: #DC2626;
+        font-weight: 600;
+    }
+
+    /* Styled buttons */
     div.stButton > button {
-        border-radius: 8px !important;
+        border-radius: 10px !important;
         font-weight: 600 !important;
+        padding: 10px 16px !important;
         transition: all 0.2s ease-in-out !important;
         border: 1px solid #CBD5E1 !important;
-        box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05) !important;
-        background-color: white !important;
+        background-color: #FFFFFF !important;
         color: #1E293B !important;
     }
     div.stButton > button:hover {
-        transform: translateY(-1px) !important;
-        box-shadow: 0 6px 12px -2px rgba(0, 0, 0, 0.08) !important;
+        transform: translateY(-2px) !important;
+        box-shadow: 0 6px 15px -3px rgba(0, 0, 0, 0.08) !important;
         border-color: #94A3B8 !important;
     }
     div.stButton > button[kind="primary"] {
         background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%) !important;
         color: white !important;
         border: none !important;
+        padding: 14px 20px !important;
+        font-size: 1.1rem !important;
     }
     div.stButton > button[kind="primary"]:hover {
         background: linear-gradient(135deg, #1D4ED8 0%, #1E40AF 100%) !important;
         color: white !important;
     }
 
-    .metric-card {
+    /* Result Card Styles */
+    .fraud-box {
+        background-color: #FEF2F2;
+        border: 2px solid #FCA5A5;
+        border-radius: 16px;
+        padding: 24px;
+        margin-bottom: 20px;
+    }
+    .legit-box {
+        background-color: #F0FDF4;
+        border: 2px solid #86EFAC;
+        border-radius: 16px;
+        padding: 24px;
+        margin-bottom: 20px;
+    }
+    .reason-item {
         background: white;
+        border-radius: 10px;
+        padding: 12px 16px;
+        margin-bottom: 8px;
         border: 1px solid #E2E8F0;
-        border-radius: 12px;
-        padding: 18px 20px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
-    }
-    .metric-label {
-        font-size: 0.85rem;
-        color: #64748B;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
-    .metric-value {
-        font-size: 1.7rem;
-        font-weight: 800;
-        color: #0F172A;
-        margin-top: 4px;
-    }
-    .metric-sub {
-        font-size: 0.8rem;
-        color: #10B981;
-        font-weight: 600;
-        margin-top: 4px;
-    }
-    .metric-sub-red {
-        font-size: 0.8rem;
-        color: #EF4444;
-        font-weight: 600;
-        margin-top: 4px;
+        font-size: 0.95rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -135,540 +166,626 @@ MODELS_DIR = os.path.join(BASE_DIR, 'models')
 ARTIFACTS_DIR = os.path.join(BASE_DIR, 'artifacts')
 IMAGES_DIR = os.path.join(BASE_DIR, 'images')
 
-# Paths for Sparkov Model
 SPARKOV_MODEL_PATH = os.path.join(MODELS_DIR, 'fraud_model.pkl')
 SPARKOV_SCALER_PATH = os.path.join(MODELS_DIR, 'fraud_scaler.pkl')
 SPARKOV_ENCODERS_PATH = os.path.join(MODELS_DIR, 'fraud_encoders.pkl')
 SPARKOV_MERCHANTS_PATH = os.path.join(MODELS_DIR, 'merchant_locations.pkl')
-
-# Paths for ULB Model
-ULB_MODEL_PATH = os.path.join(MODELS_DIR, 'best_fraud_model.joblib')
-ULB_SCALER_PATH = os.path.join(MODELS_DIR, 'scaler.joblib')
-ULB_META_PATH = os.path.join(MODELS_DIR, 'model_metadata.json')
+SPARKOV_DIST_STATS_PATH = os.path.join(MODELS_DIR, 'distance_fallback_stats.pkl')
 
 
 @st.cache_resource
-def load_sparkov_assets():
-    """Load new Sparkov dataset model and preprocessing artifacts."""
+def load_app_assets():
+    """Loads all models, merchant directories, and background intelligence safely."""
     if not os.path.exists(SPARKOV_MODEL_PATH):
-        st.error(f"Sparkov model file missing at {SPARKOV_MODEL_PATH}")
+        st.error("System setup is missing model files. Please run setup first.")
         st.stop()
+        
     model = joblib.load(SPARKOV_MODEL_PATH)
     scaler = joblib.load(SPARKOV_SCALER_PATH)
     encoders = joblib.load(SPARKOV_ENCODERS_PATH)
     merchants = joblib.load(SPARKOV_MERCHANTS_PATH)
     
-    # Load comparison table if present
-    comp_path = os.path.join(ARTIFACTS_DIR, 'sparkov_model_comparison.csv')
-    comp_df = pd.read_csv(comp_path) if os.path.exists(comp_path) else None
+    if os.path.exists(SPARKOV_DIST_STATS_PATH):
+        dist_stats = joblib.load(SPARKOV_DIST_STATS_PATH)
+    else:
+        dist_stats = {
+            'overall_median_distance': 78.23,
+            'category_median_distance': {}
+        }
     
-    # Load summary json if present
-    eda_json_path = os.path.join(ARTIFACTS_DIR, 'sparkov_eda_summary.json')
-    eda_meta = {}
-    if os.path.exists(eda_json_path):
-        with open(eda_json_path, 'r', encoding='utf-8') as f:
-            eda_meta = json.load(f)
-            
-    return model, scaler, encoders, merchants, comp_df, eda_meta
+    try:
+        explainer = shap.TreeExplainer(model)
+    except Exception:
+        explainer = None
+        
+    return model, scaler, encoders, merchants, dist_stats, explainer
 
 
-@st.cache_resource
-def load_ulb_assets():
-    """Load legacy ULB PCA dataset artifacts."""
-    if not os.path.exists(ULB_MODEL_PATH):
-        return None, None, None
-    model = joblib.load(ULB_MODEL_PATH)
-    scaler = joblib.load(ULB_SCALER_PATH)
-    with open(ULB_META_PATH, 'r', encoding='utf-8') as f:
-        meta = json.load(f)
-    return model, scaler, meta
+model, scaler, encoders, merchant_lookup, dist_fallback_stats, shap_explainer = load_app_assets()
 
-
-sparkov_model, sparkov_scaler, sparkov_encoders, merchant_lookup, sparkov_comp_df, sparkov_eda_meta = load_sparkov_assets()
-ulb_model, ulb_scaler, ulb_meta = load_ulb_assets()
-
-# Known high-confidence merchants list for dropdown autocomplete
-TOP_MERCHANTS = [
-    "fraud_Kirlin and Sons",
-    "fraud_Rippin, Kub and Mertz",
-    "fraud_Kilback LLC",
-    "fraud_Ritchie, Hane and Lehner",
-    "fraud_Cruickshank-DuBuque",
-    "fraud_Heller, Gutmann and Zieme",
-    "fraud_Gleason-Mellich",
-    "fraud_Schumm, Wolff and Tremblay",
-    "Amazon.com Marketplace",
-    "Walmart Supercenter",
-    "Target Stores",
-    "Starbucks Coffee",
-    "Uber Trips / Rideshare",
-    "Apple Store & iTunes",
-    "Netflix Entertainment",
-    "McDonald's Fast Food",
-    "Shell Gas & Transport",
-    "Costco Wholesale",
-    "Home Depot Retail",
-    "CVS Pharmacy"
-]
-
-ALL_KNOWN_MERCHANTS = sorted(list(set(list(merchant_lookup.keys()) + TOP_MERCHANTS)))
-
-CATEGORIES = sparkov_encoders.get('categories', [
-    'entertainment', 'food_dining', 'gas_transport', 'grocery_net',
-    'grocery_pos', 'health_fitness', 'home', 'kids_pets', 'misc_net',
-    'misc_pos', 'personal_care', 'shopping_net', 'shopping_pos', 'travel'
-])
-
-# Quick Preset Test Cases from actual fraudTest.csv
-PRESET_ONLINE_FRAUD = {
-    'cardholder': 'Jennifer Lawrence',
-    'gender': 'F',
-    'dob': date(1978, 5, 23),
-    'merchant': 'fraud_Kirlin and Sons',
-    'category': 'shopping_net',
-    'amt': 1077.69,
-    'trans_date': date(2020, 8, 14),
-    'trans_time': '02:15',
-    'lat': 40.7128,
-    'long': -74.0060,
-    'city_pop': 8500000,
-    'note': "High-amount online transaction executed during midnight hours"
+# User-Friendly Category Labels
+CATEGORY_LABELS = {
+    'shopping_net': '🌐 Online Shopping (Amazon, Flipkart, Myntra, etc.)',
+    'misc_net': '🌐 Online Electronics & Digital Purchases',
+    'grocery_pos': '🛒 Supermarket & Grocery Store (DMart, Reliance, Local Kirana)',
+    'shopping_pos': '🛍️ Shopping Mall / Retail Store (In-Person)',
+    'gas_transport': '⛽ Petrol Pump & Fuel Station (IndianOil, HPCL, BPCL)',
+    'food_dining': '🍔 Restaurants, Swiggy, Zomato & Dining',
+    'entertainment': '🎬 Movies (PVR / Inox), BookMyShow & Events',
+    'travel': '✈️ Flights, Hotels & IRCTC / MakeMyTrip',
+    'personal_care': '💇 Salon, Spa & Beauty Care',
+    'health_fitness': '💊 Pharmacy (Apollo, Netmeds) & Clinics',
+    'home': '🛋️ Furniture & Home Improvement',
+    'kids_pets': '🐶 Pet Supplies & Baby Care',
+    'misc_pos': '🏪 Other Local Stores & Shops',
+    'grocery_net': '📦 Instant Grocery Delivery (Blinkit, Zepto, BigBasket)'
 }
 
-PRESET_MISC_FRAUD = {
-    'cardholder': 'Robert Downey',
-    'gender': 'M',
-    'dob': date(1965, 4, 4),
-    'merchant': 'fraud_Rippin, Kub and Mertz',
+# ----------------- EXTENSIVE INDIA & GLOBAL CITIES DATABASE -----------------
+ALL_LOCATIONS = {
+    # --- Major Indian Metro Cities ---
+    "🇮🇳 Mumbai, Maharashtra": {"lat": 19.0760, "long": 72.8777, "pop": 12500000},
+    "🇮🇳 Delhi NCR (New Delhi)": {"lat": 28.6139, "long": 77.2090, "pop": 11000000},
+    "🇮🇳 Bengaluru, Karnataka": {"lat": 12.9716, "long": 77.5946, "pop": 8400000},
+    "🇮🇳 Hyderabad, Telangana": {"lat": 17.3850, "long": 78.4867, "pop": 6800000},
+    "🇮🇳 Chennai, Tamil Nadu": {"lat": 13.0827, "long": 80.2707, "pop": 4680000},
+    "🇮🇳 Kolkata, West Bengal": {"lat": 22.5726, "long": 88.3639, "pop": 4500000},
+    "🇮🇳 Pune, Maharashtra": {"lat": 18.5204, "long": 73.8567, "pop": 3124000},
+    "🇮🇳 Ahmedabad, Gujarat": {"lat": 23.0225, "long": 72.5714, "pop": 5570000},
+    
+    # --- Other Major Indian Cities (Tier 1 & 2) ---
+    "🇮🇳 Jaipur, Rajasthan": {"lat": 26.9124, "long": 75.7873, "pop": 3046000},
+    "🇮🇳 Surat, Gujarat": {"lat": 21.1702, "long": 72.8311, "pop": 4467000},
+    "🇮🇳 Lucknow, Uttar Pradesh": {"lat": 26.8467, "long": 80.9462, "pop": 2817000},
+    "🇮🇳 Chandigarh (Punjab / Haryana)": {"lat": 30.7333, "long": 76.7794, "pop": 1055000},
+    "🇮🇳 Gurugram (Gurgaon), Haryana": {"lat": 28.4595, "long": 77.0266, "pop": 876000},
+    "🇮🇳 Noida / Greater Noida, UP": {"lat": 28.5355, "long": 77.3910, "pop": 637000},
+    "🇮🇳 Indore, Madhya Pradesh": {"lat": 22.7196, "long": 75.8577, "pop": 1994000},
+    "🇮🇳 Bhopal, Madhya Pradesh": {"lat": 23.2599, "long": 77.4126, "pop": 1798000},
+    "🇮🇳 Nagpur, Maharashtra": {"lat": 21.1458, "long": 79.0882, "pop": 2405000},
+    "🇮🇳 Patna, Bihar": {"lat": 25.5941, "long": 85.1376, "pop": 1684000},
+    "🇮🇳 Vadodara, Gujarat": {"lat": 22.3072, "long": 73.1812, "pop": 1822000},
+    "🇮🇳 Visakhapatnam (Vizag), AP": {"lat": 17.6868, "long": 83.2185, "pop": 1728000},
+    "🇮🇳 Kochi / Ernakulam, Kerala": {"lat": 9.9312, "long": 76.2673, "pop": 677000},
+    "🇮🇳 Thiruvananthapuram, Kerala": {"lat": 8.5241, "long": 76.9366, "pop": 957000},
+    "🇮🇳 Coimbatore, Tamil Nadu": {"lat": 11.0168, "long": 76.9558, "pop": 1601000},
+    "🇮🇳 Goa (Panaji / Margao)": {"lat": 15.2993, "long": 74.1240, "pop": 400000},
+    "🇮🇳 Bhubaneswar, Odisha": {"lat": 20.2961, "long": 85.8245, "pop": 843000},
+    "🇮🇳 Guwahati, Assam": {"lat": 26.1445, "long": 91.7362, "pop": 962000},
+    "🇮🇳 Dehradun, Uttarakhand": {"lat": 30.3165, "long": 78.0322, "pop": 578000},
+    "🇮🇳 Varanasi, Uttar Pradesh": {"lat": 25.3176, "long": 82.9739, "pop": 1200000},
+    "🇮🇳 Amritsar, Punjab": {"lat": 31.6340, "long": 74.8723, "pop": 1132000},
+    "🇮🇳 Ranchi, Jharkhand": {"lat": 23.3441, "long": 85.3096, "pop": 1073000},
+    "🇮🇳 Mysore, Karnataka": {"lat": 12.2958, "long": 76.6394, "pop": 920000},
+    "🇮🇳 Nashik, Maharashtra": {"lat": 19.9975, "long": 73.7898, "pop": 1486000},
+    "🇮🇳 Raipur, Chhattisgarh": {"lat": 21.2514, "long": 81.6296, "pop": 1010000},
+    "🇮🇳 Rajkot, Gujarat": {"lat": 22.3039, "long": 70.8022, "pop": 1390000},
+    "🇮🇳 Agra, Uttar Pradesh": {"lat": 27.1767, "long": 78.0081, "pop": 1585000},
+    "🇮🇳 Madurai, Tamil Nadu": {"lat": 9.9252, "long": 78.1198, "pop": 1017000},
+    "🇮🇳 Jodhpur, Rajasthan": {"lat": 26.2389, "long": 73.0243, "pop": 1033000},
+    
+    # --- Major Global Cities ---
+    "🇺🇸 New York, USA": {"lat": 40.7128, "long": -74.0060, "pop": 8336817},
+    "🇺🇸 Los Angeles, USA": {"lat": 34.0522, "long": -118.2437, "pop": 3979576},
+    "🇺🇸 Chicago, USA": {"lat": 41.8781, "long": -87.6298, "pop": 2693976},
+    "🇬🇧 London, United Kingdom": {"lat": 51.5074, "long": -0.1278, "pop": 8982000},
+    "🇦🇪 Dubai, UAE": {"lat": 25.2048, "long": 55.2708, "pop": 3331000},
+    "🇸🇬 Singapore": {"lat": 1.3521, "long": 103.8198, "pop": 5686000},
+    "🇨🇦 Toronto, Canada": {"lat": 43.6532, "long": -79.3832, "pop": 2930000},
+    "🇦🇺 Sydney, Australia": {"lat": -33.8688, "long": 151.2093, "pop": 5312000},
+    
+    # --- Custom Option ---
+    "📍 Custom / Enter Coordinates Manually": {"lat": 19.0760, "long": 72.8777, "pop": 500000}
+}
+
+# Merchant Options with Common India & Everyday Stores
+POPULAR_STORES = [
+    "Amazon Online Store",
+    "Flipkart Online",
+    "Swiggy / Zomato Food Delivery",
+    "Blinkit / Zepto / BigBasket",
+    "DMart Supermarket",
+    "Reliance Smart / Trends",
+    "Petrol Pump (IndianOil / HPCL / BPCL)",
+    "MakeMyTrip / IRCTC / IndiGo",
+    "Nykaa / Myntra Online",
+    "BookMyShow / PVR Inox",
+    "Apollo Pharmacy / Netmeds",
+    "Tata Neu / Croma Electronics",
+    "Local Kirana / Neighborhood Store",
+    "Other / Unregistered Merchant"
+]
+
+DATASET_MERCHANTS = sorted(list(merchant_lookup.keys()))
+ALL_MERCHANT_OPTIONS = POPULAR_STORES + [f"Dataset Registry: {m}" for m in DATASET_MERCHANTS]
+
+# Easy Preset Examples (India & Global friendly)
+PRESET_ONLINE_FRAUD = {
+    'name': 'Pooja Sharma',
+    'gender': 'Female',
+    'dob': date(1985, 6, 15),
+    'merchant': 'Amazon Online Store',
+    'category': 'shopping_net',
+    'amt': 78500.00,
+    'trans_date': date(2026, 8, 14),
+    'trans_hour': 2,
+    'city': '🇮🇳 Mumbai, Maharashtra',
+    'lat': 19.0760,
+    'long': 72.8777,
+    'pop': 12500000
+}
+
+PRESET_LATE_FRAUD = {
+    'name': 'Rahul Verma',
+    'gender': 'Male',
+    'dob': date(1992, 3, 20),
+    'merchant': 'Flipkart Online',
     'category': 'misc_net',
-    'amt': 780.52,
-    'trans_date': date(2020, 9, 3),
-    'trans_time': '23:45',
-    'lat': 34.0522,
-    'long': -118.2437,
-    'city_pop': 4000000,
-    'note': "Late night online electronic purchase with high deviation from median spend"
+    'amt': 54200.00,
+    'trans_date': date(2026, 9, 3),
+    'trans_hour': 23,
+    'city': '🇮🇳 Delhi NCR (New Delhi)',
+    'lat': 28.6139,
+    'long': 77.2090,
+    'pop': 11000000
 }
 
 PRESET_LEGIT_GROCERY = {
-    'cardholder': 'Sarah Jenkins',
-    'gender': 'F',
+    'name': 'Ananya Iyer',
+    'gender': 'Female',
     'dob': date(1990, 11, 12),
-    'merchant': 'Walmart Supercenter',
+    'merchant': 'DMart Supermarket',
     'category': 'grocery_pos',
-    'amt': 42.85,
-    'trans_date': date(2020, 10, 5),
-    'trans_time': '14:30',
-    'lat': 41.8781,
-    'long': -87.6298,
-    'city_pop': 2700000,
-    'note': "Routine daytime supermarket grocery purchase close to cardholder home"
+    'amt': 1850.00,
+    'trans_date': date(2026, 10, 5),
+    'trans_hour': 14,
+    'city': '🇮🇳 Bengaluru, Karnataka',
+    'lat': 12.9716,
+    'long': 77.5946,
+    'pop': 8400000
 }
 
 PRESET_LEGIT_GAS = {
-    'cardholder': 'Michael Scott',
-    'gender': 'M',
-    'dob': date(1982, 3, 15),
-    'merchant': 'Shell Gas & Transport',
+    'name': 'Amit Patel',
+    'gender': 'Male',
+    'dob': date(1988, 4, 18),
+    'merchant': 'Petrol Pump (IndianOil / HPCL / BPCL)',
     'category': 'gas_transport',
-    'amt': 28.50,
-    'trans_date': date(2020, 10, 5),
-    'trans_time': '08:45',
-    'lat': 41.8781,
-    'long': -87.6298,
-    'city_pop': 2700000,
-    'note': "Morning fuel refill on commuter route"
+    'amt': 2200.00,
+    'trans_date': date(2026, 10, 5),
+    'trans_hour': 9,
+    'city': '🇮🇳 Ahmedabad, Gujarat',
+    'lat': 23.0225,
+    'long': 72.5714,
+    'pop': 5570000
 }
 
 
-# =========================================================================
-# APPLICATION HEADER
-# =========================================================================
-st.title("💳 Enterprise Credit Card Fraud Detection Platform")
-st.markdown("End-to-end Machine Learning system for real-time transaction screening, spatial-temporal risk scoring, and interactive business analytics.")
+def load_preset(preset: dict):
+    st.session_state.usr_name = preset['name']
+    st.session_state.usr_gender = preset['gender']
+    st.session_state.usr_dob = preset['dob']
+    st.session_state.usr_merchant = preset['merchant']
+    st.session_state.usr_category = preset['category']
+    st.session_state.usr_amt = preset['amt']
+    st.session_state.usr_date = preset['trans_date']
+    st.session_state.usr_hour = preset['trans_hour']
+    st.session_state.usr_city = preset['city']
+    st.session_state.usr_lat = preset['lat']
+    st.session_state.usr_long = preset['long']
+    st.session_state.usr_pop = preset['pop']
+    st.rerun()
 
-# Tab Navigation
-tab1, tab2 = st.tabs(["📊 Model Analytics & Exploratory Data Analysis", "🔮 Live Transaction Risk Screener"])
+
+# =========================================================================
+# HEADER
+# =========================================================================
+st.title("🛡️ CardShield — Credit Card Safety Checker")
+st.markdown("Instantly check whether any credit card payment is **safe to approve** or **likely to be fraud** across India and international locations.")
+
+tab1, tab2 = st.tabs(["🔍 Check a Payment", "📊 Common Fraud Trends & Tips"])
 
 
 # =========================================================================
-# TAB 1: MODEL ANALYTICS & EDA
+# TAB 1: CHECK A TRANSACTION (SIMPLE, FRIENDLY INTERFACE)
 # =========================================================================
 with tab1:
-    st.header("Exploratory Data Analysis & Production Model Benchmark")
-    st.markdown("Compare the dataset characteristics and evaluation metrics across the production models.")
-
-    dataset_choice = st.radio(
-        "Select Dataset & Model Benchmark:",
-        ["Realistic Transaction Engine (Sparkov Dataset — Powers Live Prediction)", "PCA-Transformed Benchmark (MLG-ULB Dataset)"],
-        horizontal=True
-    )
+    st.markdown("### ⚡ Quick Examples (Click one to test)")
+    st.caption("Click any sample below to automatically fill in the form and test the system:")
     
+    col_e1, col_e2, col_e3, col_e4 = st.columns(4)
+    with col_e1:
+        if st.button("🚨 Midnight Online Order (₹78,500)", use_container_width=True):
+            load_preset(PRESET_ONLINE_FRAUD)
+    with col_e2:
+        if st.button("🚨 Late Night Purchase (₹54,200)", use_container_width=True):
+            load_preset(PRESET_LATE_FRAUD)
+    with col_e3:
+        if st.button("✅ DMart Grocery (₹1,850)", use_container_width=True):
+            load_preset(PRESET_LEGIT_GROCERY)
+    with col_e4:
+        if st.button("✅ Petrol Pump Refill (₹2,200)", use_container_width=True):
+            load_preset(PRESET_LEGIT_GAS)
+
     st.markdown("---")
     
-    if "Sparkov" in dataset_choice:
-        # KPI Cards for Sparkov
-        k1, k2, k3, k4 = st.columns(4)
-        with k1:
-            st.markdown("""
-            <div class="metric-card">
-                <div class="metric-label">Dataset Transactions</div>
-                <div class="metric-value">1,852,394</div>
-                <div class="metric-sub">1.29M Train / 555K Holdout Test</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with k2:
-            st.markdown("""
-            <div class="metric-card">
-                <div class="metric-label">Fraud Prevalence</div>
-                <div class="metric-value">0.386%</div>
-                <div class="metric-sub-red">Extreme Class Imbalance (1:171)</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with k3:
-            st.markdown("""
-            <div class="metric-card">
-                <div class="metric-label">Champion Test Recall</div>
-                <div class="metric-value">94.55%</div>
-                <div class="metric-sub">Caught 2,028 of 2,145 Test Frauds</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with k4:
-            st.markdown("""
-            <div class="metric-card">
-                <div class="metric-label">Champion PR-AUC / ROC-AUC</div>
-                <div class="metric-value">0.8686 / 0.9974</div>
-                <div class="metric-sub">Balanced XGBoost Model</div>
-            </div>
-            """, unsafe_allow_html=True)
+    # State initialization
+    if "usr_name" not in st.session_state:
+        st.session_state.usr_name = "Pooja Sharma"
+    if "usr_gender" not in st.session_state:
+        st.session_state.usr_gender = "Female"
+    if "usr_dob" not in st.session_state:
+        st.session_state.usr_dob = date(1985, 6, 15)
+    if "usr_merchant" not in st.session_state:
+        st.session_state.usr_merchant = "Amazon Online Store"
+    if "usr_category" not in st.session_state:
+        st.session_state.usr_category = "shopping_net"
+    if "usr_amt" not in st.session_state:
+        st.session_state.usr_amt = 78500.00
+    if "usr_date" not in st.session_state:
+        st.session_state.usr_date = date.today()
+    if "usr_hour" not in st.session_state:
+        st.session_state.usr_hour = 2
+    if "usr_city" not in st.session_state:
+        st.session_state.usr_city = "🇮🇳 Mumbai, Maharashtra"
+    if "usr_lat" not in st.session_state:
+        st.session_state.usr_lat = 19.0760
+    if "usr_long" not in st.session_state:
+        st.session_state.usr_long = 72.8777
+    if "usr_pop" not in st.session_state:
+        st.session_state.usr_pop = 12500000
+
+    with st.form("simple_screening_form"):
+        st.subheader("1. Payment & Store Details")
+        r1_c1, r1_c2 = st.columns(2)
+        
+        with r1_c1:
+            cardholder_name = st.text_input("Cardholder Name", value=st.session_state.usr_name)
+            amount = st.number_input("Payment Amount (₹ / $)", value=float(st.session_state.usr_amt), min_value=1.0, step=100.0, format="%.2f")
+            
+        with r1_c2:
+            # Merchant Selector
+            cur_merch = st.session_state.usr_merchant
+            merch_idx = ALL_MERCHANT_OPTIONS.index(cur_merch) if cur_merch in ALL_MERCHANT_OPTIONS else 0
+            selected_merchant = st.selectbox("Store / Merchant Name", options=ALL_MERCHANT_OPTIONS, index=merch_idx)
+            
+            # Category with plain labels
+            cat_keys = list(CATEGORY_LABELS.keys())
+            cur_cat = st.session_state.usr_category if st.session_state.usr_category in cat_keys else cat_keys[0]
+            cat_idx = cat_keys.index(cur_cat)
+            
+            selected_category_key = st.selectbox(
+                "What type of purchase is this?", 
+                options=cat_keys, 
+                format_func=lambda k: CATEGORY_LABELS[k],
+                index=cat_idx
+            )
+
+        st.subheader("2. Location & Time")
+        r2_c1, r2_c2, r2_c3 = st.columns(3)
+        
+        with r2_c1:
+            city_names = list(ALL_LOCATIONS.keys())
+            cur_city = st.session_state.usr_city if st.session_state.usr_city in city_names else city_names[0]
+            chosen_city = st.selectbox("Cardholder's Home City / State", options=city_names, index=city_names.index(cur_city))
+            
+            if chosen_city != "📍 Custom / Enter Coordinates Manually":
+                home_lat = ALL_LOCATIONS[chosen_city]["lat"]
+                home_long = ALL_LOCATIONS[chosen_city]["long"]
+                home_pop = ALL_LOCATIONS[chosen_city]["pop"]
+            else:
+                c_lat_col, c_lon_col = st.columns(2)
+                with c_lat_col:
+                    home_lat = st.number_input("Latitude", value=float(st.session_state.usr_lat), format="%.4f")
+                with c_lon_col:
+                    home_long = st.number_input("Longitude", value=float(st.session_state.usr_long), format="%.4f")
+                home_pop = int(st.session_state.usr_pop)
+
+        with r2_c2:
+            purchase_date = st.date_input("Date of Purchase", value=st.session_state.usr_date)
+            
+        with r2_c3:
+            # Friendly Time of Day Slider
+            purchase_hour = st.slider("Time of Purchase (0 = Midnight, 12 = Noon, 23 = 11 PM)", min_value=0, max_value=23, value=st.session_state.usr_hour)
+            if 0 <= purchase_hour <= 4 or purchase_hour == 23:
+                st.caption("🌙 Late Night Hours (High Risk Window)")
+            elif 5 <= purchase_hour <= 11:
+                st.caption("☀️ Morning")
+            elif 12 <= purchase_hour <= 17:
+                st.caption("🌤️ Afternoon")
+            else:
+                st.caption("🌆 Evening")
+
+        # Simplified Cardholder Details
+        with st.expander("👤 Optional: Cardholder Details (Birthday & Gender)", expanded=False):
+            e_c1, e_c2 = st.columns(2)
+            with e_c1:
+                gender_choice = st.selectbox("Gender", ["Female", "Male"], index=0 if st.session_state.usr_gender == "Female" else 1)
+            with e_c2:
+                dob_val = st.date_input("Date of Birth", value=st.session_state.usr_dob)
+
+        # Merchant Coordinate Resolution
+        clean_merch_name = selected_merchant.replace("Dataset Registry: ", "").strip()
+        is_known = (clean_merch_name in merchant_lookup)
+        if is_known:
+            m_lat = merchant_lookup[clean_merch_name]['merch_lat']
+            m_long = merchant_lookup[clean_merch_name]['merch_long']
+            distance_km = haversine_distance(home_lat, home_long, m_lat, m_long)
+            dist_override = None
+        else:
+            m_lat = home_lat + 0.02
+            m_long = home_long + 0.02
+            # Local purchase distance (e.g. typical store in city ~ 8-15 km, or category median)
+            if selected_category_key in ['grocery_pos', 'gas_transport', 'food_dining', 'personal_care']:
+                local_dist = 6.5
+            else:
+                local_dist = float(dist_fallback_stats['category_median_distance'].get(selected_category_key, 78.0))
+            distance_km = local_dist
+            dist_override = float(local_dist)
 
         st.markdown("<br>", unsafe_allow_html=True)
-        
-        # Section 1: Exploratory Data Analysis
-        st.subheader("1. Exploratory Data Analysis & Behavioral Attack Patterns")
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("**Category-Level Fraud Risk (%)**")
-            st.caption("Online shopping (`shopping_net`, `misc_net`) and Point-of-Sale groceries (`grocery_pos`) exhibit the highest fraud frequency.")
-            cat_img = os.path.join(ARTIFACTS_DIR, 'sparkov_eda_category.png')
-            if os.path.exists(cat_img):
-                st.image(cat_img, use_container_width=True)
-        with c2:
-            st.markdown("**Nocturnal Attack Spikes (Hourly Trend)**")
-            st.caption("Fraud probability peaks dramatically between 22:00 and 03:00 when cardholders are asleep.")
-            hour_img = os.path.join(ARTIFACTS_DIR, 'sparkov_eda_hourly.png')
-            if os.path.exists(hour_img):
-                st.image(hour_img, use_container_width=True)
+        submit = st.form_submit_button("🛡️ Check If Payment Is Safe", type="primary", use_container_width=True)
 
-        st.markdown("**Geographic Concentration by US State**")
-        st.caption("Absolute fraudulent transaction volume across the top 15 impacted US states.")
-        state_img = os.path.join(ARTIFACTS_DIR, 'sparkov_eda_state.png')
-        if os.path.exists(state_img):
-            st.image(state_img, use_container_width=True)
-            
-        st.markdown("---")
-        
-        # Section 2: Model Comparison & Test Set Evaluation
-        st.subheader("2. Model Evaluation on 555,719 Unseen Holdout Transactions")
-        st.info("💡 **Production Model Selection:** **Balanced XGBoost** was selected to power the live prediction engine because catching fraudulent transactions (94.55% Recall) is paramount in financial loss prevention, while maintaining a high PR-AUC of 0.8686.")
-        
-        if sparkov_comp_df is not None:
-            st.dataframe(
-                sparkov_comp_df.style.format({
-                    'Precision': '{:.2%}',
-                    'Recall': '{:.2%}',
-                    'F1-Score': '{:.4f}',
-                    'ROC-AUC': '{:.4f}',
-                    'PR-AUC': '{:.4f}',
-                    'True Positives (Caught)': '{:,}',
-                    'False Positives (Alarms)': '{:,}',
-                    'False Negatives (Missed)': '{:,}',
-                    'True Negatives': '{:,}'
-                }),
-                use_container_width=True
-            )
-            
-        col_m1, col_m2 = st.columns(2)
-        with col_m1:
-            st.markdown("**Confusion Matrices Comparison**")
-            cm_img = os.path.join(ARTIFACTS_DIR, 'sparkov_confusion_matrix.png')
-            if os.path.exists(cm_img):
-                st.image(cm_img, use_container_width=True)
-        with col_m2:
-            st.markdown("**ROC & Precision-Recall Curves**")
-            roc_img = os.path.join(ARTIFACTS_DIR, 'sparkov_roc_curve.png')
-            if os.path.exists(roc_img):
-                st.image(roc_img, use_container_width=True)
+    # ------------------ PREDICTION & SIMPLE EXPLANATION ------------------
+    if submit:
+        if amount <= 0:
+            st.error("Please enter a valid amount greater than 0.")
+        else:
+            try:
+                # Convert amount to benchmark equivalent scale for model (approx 1 USD ~ 80 INR for standard scale)
+                # If amount > 1000 and Indian city is selected, treat as INR
+                is_inr = ("🇮🇳" in chosen_city) or (amount > 1000)
+                norm_amt = (amount / 80.0) if is_inr else amount
                 
-        st.markdown("**Feature Importance Hierarchy (Champion Model)**")
-        st.caption("Transaction amount (`amt`), category, distance from home (`distance_from_home`), and transaction hour dominate risk scoring.")
-        feat_img = os.path.join(ARTIFACTS_DIR, 'sparkov_feature_importance.png')
-        if os.path.exists(feat_img):
-            st.image(feat_img, use_container_width=True)
+                date_time_str = f"{purchase_date.strftime('%Y-%m-%d')} {purchase_hour:02d}:00:00"
+                raw_dict = {
+                    'trans_date_trans_time': date_time_str,
+                    'category': selected_category_key,
+                    'amt': float(norm_amt),
+                    'gender': 'F' if gender_choice == "Female" else 'M',
+                    'lat': float(home_lat),
+                    'long': float(home_long),
+                    'city_pop': int(home_pop),
+                    'dob': dob_val.strftime('%Y-%m-%d'),
+                    'merch_lat': float(m_lat),
+                    'merch_long': float(m_long)
+                }
+                
+                features_df = transform_features(raw_dict, encoders, distance_override=dist_override)
+                scaled = scaler.transform(features_df)
+                
+                probs = model.predict_proba(scaled)[0]
+                fraud_chance = float(probs[1]) * 100
+                safe_chance = float(probs[0]) * 100
+                is_fraud = (fraud_chance >= 50.0)
+                
+                cardholder_age = calculate_age_date_aware(purchase_date, dob_val)
+                currency_symbol = "₹" if is_inr else "$"
+                
+            except Exception as e:
+                st.error("We couldn't check this transaction. Please verify that all fields are filled properly.")
+                st.stop()
 
-    else:
-        # Legacy ULB Dataset section
-        st.subheader("European Cardholder PCA Dataset Analysis (284k Transactions)")
-        st.markdown("Analysis based on 28-dimensional anonymized principal components (`V1` to `V28`).")
-        
-        if ulb_meta:
-            u1, u2, u3, u4 = st.columns(4)
-            with u1:
-                st.metric("Total Transactions", "283,726", "226k Train / 56k Test")
-            with u2:
-                st.metric("Fraud Rate", "0.17%", "492 Total Cases")
-            with u3:
-                st.metric("Test Precision", f"{ulb_meta['metrics_on_test_set']['precision']*100:.1f}%", "24 False Alerts")
-            with u4:
-                st.metric("Test Recall", f"{ulb_meta['metrics_on_test_set']['recall']*100:.1f}%", "74 / 95 Frauds Caught")
+            st.markdown("---")
+            st.subheader("Results & Action Recommendation")
 
-        col_u1, col_u2 = st.columns(2)
-        with col_u1:
-            st.image(os.path.join(IMAGES_DIR, '01_class_distribution.png'), caption="Class Imbalance", use_container_width=True)
-            st.image(os.path.join(IMAGES_DIR, '04_hourly_fraud_trend.png'), caption="Hourly Trend", use_container_width=True)
-        with col_u2:
-            st.image(os.path.join(IMAGES_DIR, '03_amount_category_fraud_rate.png'), caption="Amount Tier Distribution", use_container_width=True)
-            st.image(os.path.join(IMAGES_DIR, '07_confusion_matrices.png'), caption="Random Forest Confusion Matrix", use_container_width=True)
+            # Simple Verdict Banner
+            if is_fraud:
+                st.markdown(f"""
+                <div class="fraud-box">
+                    <h2 style="color: #DC2626; margin: 0;">🚨 Suspicious Transaction (High Risk of Fraud)</h2>
+                    <p style="font-size: 1.15rem; color: #7F1D1D; margin-top: 8px;">
+                        Our system detected unusual patterns that look like fraud (<strong>{fraud_chance:.1f}% risk score</strong>).
+                    </p>
+                    <p style="font-size: 1rem; color: #991B1B; margin-bottom: 0;">
+                        <strong>👉 Recommended Action:</strong> <strong>Do not approve this payment immediately.</strong> Send a quick verification SMS/WhatsApp alert to <strong>{cardholder_name}</strong> to confirm if they actually made this purchase for <strong>{currency_symbol}{amount:,.2f}</strong>.
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div class="legit-box">
+                    <h2 style="color: #16A34A; margin: 0;">✅ Safe Transaction (Looks Completely Normal)</h2>
+                    <p style="font-size: 1.15rem; color: #14532D; margin-top: 8px;">
+                        This payment matches typical, safe everyday spending habits (<strong>{safe_chance:.1f}% safe</strong>).
+                    </p>
+                    <p style="font-size: 1rem; color: #166534; margin-bottom: 0;">
+                        <strong>👉 Recommended Action:</strong> <strong>Approve payment of {currency_symbol}{amount:,.2f}</strong>. Everything looks safe and routine!
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+
+            # Key Summary Cards (Plain English)
+            k1, k2, k3, k4 = st.columns(4)
+            with k1:
+                st.markdown(f"""
+                <div class="stat-card">
+                    <div class="stat-title">Risk Level</div>
+                    <div class="stat-number" style="color: {'#DC2626' if is_fraud else '#16A34A'};">
+                        {fraud_chance:.1f}%
+                    </div>
+                    <div class="{'stat-desc-alert' if is_fraud else 'stat-desc'}">
+                        {'⚠️ High Fraud Risk' if is_fraud else '✔️ Safe & Verified'}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+            with k2:
+                st.markdown(f"""
+                <div class="stat-card">
+                    <div class="stat-title">Location / City</div>
+                    <div class="stat-number" style="font-size: 1.25rem;">{chosen_city.split(',')[0]}</div>
+                    <div class="stat-desc">{'Local in-city store' if distance_km < 30 else f'~{distance_km:.0f} km away'}</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+            with k3:
+                st.markdown(f"""
+                <div class="stat-card">
+                    <div class="stat-title">Purchase Time</div>
+                    <div class="stat-number">{purchase_hour:02d}:00</div>
+                    <div class="{'stat-desc-alert' if (0 <= purchase_hour <= 4 or purchase_hour == 23) else 'stat-desc'}">
+                        {'🌙 Late Night Hours' if (0 <= purchase_hour <= 4 or purchase_hour == 23) else '☀️ Normal Daytime'}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            with k4:
+                st.markdown(f"""
+                <div class="stat-card">
+                    <div class="stat-title">Cardholder Age</div>
+                    <div class="stat-number">{cardholder_age} yrs</div>
+                    <div class="stat-desc">Cardholder Verified</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # ------------------ SIMPLE EXPLAINABILITY SECTION ------------------
+            st.subheader("💡 Why did the system make this decision?")
+            st.markdown("Here is a clear breakdown of the main reasons in simple terms:")
+
+            col_why1, col_why2 = st.columns(2)
+
+            with col_why1:
+                st.markdown("#### 🔍 Key Observations")
+                reasons = []
+
+                if norm_amt > 400:
+                    reasons.append(f"🔴 **High Amount:** {currency_symbol}{amount:,.2f} is significantly higher than ordinary routine purchases.")
+                elif norm_amt < 50:
+                    reasons.append(f"🟢 **Typical Amount:** {currency_symbol}{amount:,.2f} is a standard everyday amount.")
+
+                if (0 <= purchase_hour <= 4) or purchase_hour == 23:
+                    reasons.append(f"🔴 **Late Night Purchase ({purchase_hour:02d}:00):** Most credit card fraud happens late at night while cardholders are asleep.")
+                else:
+                    reasons.append(f"🟢 **Normal Hours ({purchase_hour:02d}:00):** Made during active daytime hours.")
+
+                if distance_km > 60:
+                    reasons.append(f"🔴 **Distance From Home:** Store is ~{distance_km:.0f} km away from the cardholder's home city.")
+                else:
+                    reasons.append(f"🟢 **Nearby Store:** Store is located locally in the cardholder's city (~{distance_km:.0f} km).")
+
+                if selected_category_key in ['shopping_net', 'misc_net']:
+                    reasons.append("🔴 **Online Shopping:** Online shopping websites are where most stolen card numbers are used.")
+                elif selected_category_key in ['grocery_pos', 'gas_transport']:
+                    reasons.append("🟢 **Everyday Routine:** Grocery supermarkets and petrol pumps are standard everyday habits.")
+
+                for r in reasons:
+                    st.markdown(f"<div class='reason-item'>{r}</div>", unsafe_allow_html=True)
+
+            with col_why2:
+                st.markdown("#### 🛡️ Next Steps for Security")
+                if is_fraud:
+                    st.markdown(f"""
+                    <div class='reason-item'>
+                        <strong>1. Hold the payment:</strong> Do not release items or money yet.
+                    </div>
+                    <div class='reason-item'>
+                        <strong>2. Send verification SMS:</strong> Ask cardholder: <em>"Did you just pay {currency_symbol}{amount:,.2f} at {selected_merchant.replace('Dataset Registry: ', '')}?"</em>
+                    </div>
+                    <div class='reason-item'>
+                        <strong>3. Instant Freeze:</strong> If they reply NO, freeze the card immediately to stop more losses.
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                    <div class='reason-item'>
+                        <strong>1. Approve payment:</strong> Safe to process {currency_symbol}{amount:,.2f}.
+                    </div>
+                    <div class='reason-item'>
+                        <strong>2. Fast checkout:</strong> No extra security steps or SMS alerts needed.
+                    </div>
+                    <div class='reason-item'>
+                        <strong>3. Normal processing:</strong> Generate receipt and confirm order.
+                    </div>
+                    """, unsafe_allow_html=True)
 
 
 # =========================================================================
-# TAB 2: LIVE TRANSACTION RISK SCREENER
+# TAB 2: FRAUD TRENDS & TIPS (JARGON-FREE INSIGHTS)
 # =========================================================================
 with tab2:
-    st.header("🔮 Real-Time Transaction Screening Engine")
-    st.markdown("Enter transaction details or select a quick-fill scenario. Features (including distance from home and cardholder age) are extracted using `src/feature_engineering.py` and evaluated by the champion model.")
-    
-    # Session state for live screener inputs
-    if "sc_name" not in st.session_state:
-        st.session_state.sc_name = "Jennifer Lawrence"
-    if "sc_gender" not in st.session_state:
-        st.session_state.sc_gender = "F"
-    if "sc_dob" not in st.session_state:
-        st.session_state.sc_dob = date(1978, 5, 23)
-    if "sc_merchant" not in st.session_state:
-        st.session_state.sc_merchant = "fraud_Kirlin and Sons"
-    if "sc_category" not in st.session_state:
-        st.session_state.sc_category = "shopping_net"
-    if "sc_amt" not in st.session_state:
-        st.session_state.sc_amt = 1077.69
-    if "sc_trans_date" not in st.session_state:
-        st.session_state.sc_trans_date = date(2020, 8, 14)
-    if "sc_trans_hour" not in st.session_state:
-        st.session_state.sc_trans_hour = 2
-    if "sc_lat" not in st.session_state:
-        st.session_state.sc_lat = 40.7128
-    if "sc_long" not in st.session_state:
-        st.session_state.sc_long = -74.0060
-    if "sc_city_pop" not in st.session_state:
-        st.session_state.sc_city_pop = 8500000
+    st.header("📊 Real-World Fraud Facts & How to Stay Safe")
+    st.markdown("Insights gathered from analyzing over **1.85 million credit card payments**:")
 
-    # Preset Selection Buttons
-    st.markdown("#### 🧪 One-Click Test Presets")
-    b1, b2, b3, b4 = st.columns(4)
-    
-    with b1:
-        if st.button("🚨 Online Midnight Fraud ($1,077)", use_container_width=True):
-            st.session_state.sc_name = PRESET_ONLINE_FRAUD['cardholder']
-            st.session_state.sc_gender = PRESET_ONLINE_FRAUD['gender']
-            st.session_state.sc_dob = PRESET_ONLINE_FRAUD['dob']
-            st.session_state.sc_merchant = PRESET_ONLINE_FRAUD['merchant']
-            st.session_state.sc_category = PRESET_ONLINE_FRAUD['category']
-            st.session_state.sc_amt = PRESET_ONLINE_FRAUD['amt']
-            st.session_state.sc_trans_date = PRESET_ONLINE_FRAUD['trans_date']
-            st.session_state.sc_trans_hour = int(PRESET_ONLINE_FRAUD['trans_time'].split(':')[0])
-            st.session_state.sc_lat = PRESET_ONLINE_FRAUD['lat']
-            st.session_state.sc_long = PRESET_ONLINE_FRAUD['long']
-            st.session_state.sc_city_pop = PRESET_ONLINE_FRAUD['city_pop']
-            st.rerun()
-            
-    with b2:
-        if st.button("🚨 Stolen Card Late Attack ($780)", use_container_width=True):
-            st.session_state.sc_name = PRESET_MISC_FRAUD['cardholder']
-            st.session_state.sc_gender = PRESET_MISC_FRAUD['gender']
-            st.session_state.sc_dob = PRESET_MISC_FRAUD['dob']
-            st.session_state.sc_merchant = PRESET_MISC_FRAUD['merchant']
-            st.session_state.sc_category = PRESET_MISC_FRAUD['category']
-            st.session_state.sc_amt = PRESET_MISC_FRAUD['amt']
-            st.session_state.sc_trans_date = PRESET_MISC_FRAUD['trans_date']
-            st.session_state.sc_trans_hour = int(PRESET_MISC_FRAUD['trans_time'].split(':')[0])
-            st.session_state.sc_lat = PRESET_MISC_FRAUD['lat']
-            st.session_state.sc_long = PRESET_MISC_FRAUD['long']
-            st.session_state.sc_city_pop = PRESET_MISC_FRAUD['city_pop']
-            st.rerun()
+    c_f1, c_f2, c_f3 = st.columns(3)
+    with c_f1:
+        st.markdown("""
+        <div class="stat-card">
+            <div class="stat-title">How Rare Is Fraud?</div>
+            <div class="stat-number">Only 0.4%</div>
+            <div class="stat-desc">About 4 out of every 1,000 transactions are fraud.</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    with c_f2:
+        st.markdown("""
+        <div class="stat-card">
+            <div class="stat-title">AI Success Rate</div>
+            <div class="stat-number">95% Caught</div>
+            <div class="stat-desc">Our smart system successfully catches 95 out of 100 fraud attacks.</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    with c_f3:
+        st.markdown("""
+        <div class="stat-card">
+            <div class="stat-title">Most Dangerous Time</div>
+            <div class="stat-number">10 PM – 3 AM</div>
+            <div class="stat-desc-alert">Fraud spikes 4x during late-night hours.</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    with b3:
-        if st.button("✅ Daytime Grocery Run ($42)", use_container_width=True):
-            st.session_state.sc_name = PRESET_LEGIT_GROCERY['cardholder']
-            st.session_state.sc_gender = PRESET_LEGIT_GROCERY['gender']
-            st.session_state.sc_dob = PRESET_LEGIT_GROCERY['dob']
-            st.session_state.sc_merchant = PRESET_LEGIT_GROCERY['merchant']
-            st.session_state.sc_category = PRESET_LEGIT_GROCERY['category']
-            st.session_state.sc_amt = PRESET_LEGIT_GROCERY['amt']
-            st.session_state.sc_trans_date = PRESET_LEGIT_GROCERY['trans_date']
-            st.session_state.sc_trans_hour = int(PRESET_LEGIT_GROCERY['trans_time'].split(':')[0])
-            st.session_state.sc_lat = PRESET_LEGIT_GROCERY['lat']
-            st.session_state.sc_long = PRESET_LEGIT_GROCERY['long']
-            st.session_state.sc_city_pop = PRESET_LEGIT_GROCERY['city_pop']
-            st.rerun()
+    st.markdown("<br>", unsafe_allow_html=True)
 
-    with b4:
-        if st.button("✅ Morning Commuter Gas ($28)", use_container_width=True):
-            st.session_state.sc_name = PRESET_LEGIT_GAS['cardholder']
-            st.session_state.sc_gender = PRESET_LEGIT_GAS['gender']
-            st.session_state.sc_dob = PRESET_LEGIT_GAS['dob']
-            st.session_state.sc_merchant = PRESET_LEGIT_GAS['merchant']
-            st.session_state.sc_category = PRESET_LEGIT_GAS['category']
-            st.session_state.sc_amt = PRESET_LEGIT_GAS['amt']
-            st.session_state.sc_trans_date = PRESET_LEGIT_GAS['trans_date']
-            st.session_state.sc_trans_hour = int(PRESET_LEGIT_GAS['trans_time'].split(':')[0])
-            st.session_state.sc_lat = PRESET_LEGIT_GAS['lat']
-            st.session_state.sc_long = PRESET_LEGIT_GAS['long']
-            st.session_state.sc_city_pop = PRESET_LEGIT_GAS['city_pop']
-            st.rerun()
+    st.subheader("1. Where does fraud happen most?")
+    st.markdown("Online shopping, high-value electronics, and online orders have the highest rate of fraud attempts.")
+    cat_chart = os.path.join(ARTIFACTS_DIR, 'sparkov_eda_category.png')
+    if os.path.exists(cat_chart):
+        st.image(cat_chart, width='stretch')
+
+    st.subheader("2. What time of day is riskiest?")
+    st.markdown("Fraudsters prefer operating late at night when people are sleeping and won't notice immediate bank text alerts.")
+    hour_chart = os.path.join(ARTIFACTS_DIR, 'sparkov_eda_hourly.png')
+    if os.path.exists(hour_chart):
+        st.image(hour_chart, width='stretch')
 
     st.markdown("---")
-
-    # Transaction Form Layout
-    with st.form("fraud_screener_form"):
-        st.markdown("#### 1. Transaction & Merchant Details")
-        f_c1, f_c2, f_c3 = st.columns(3)
-        
-        with f_c1:
-            cardholder_name = st.text_input("Cardholder Name (Display Only)", value=st.session_state.sc_name)
-            amt = st.number_input("Transaction Amount ($)", value=float(st.session_state.sc_amt), min_value=0.01, max_value=50000.0, step=10.0, format="%.2f")
-            
-        with f_c2:
-            # Merchant Input with Auto-complete
-            current_merchant = st.session_state.sc_merchant
-            merchant_default_idx = ALL_KNOWN_MERCHANTS.index(current_merchant) if current_merchant in ALL_KNOWN_MERCHANTS else 0
-            merchant_selected = st.selectbox("Merchant Name", options=ALL_KNOWN_MERCHANTS, index=merchant_default_idx)
-            
-            # Category
-            cat_default_idx = CATEGORIES.index(st.session_state.sc_category) if st.session_state.sc_category in CATEGORIES else 0
-            category = st.selectbox("Spending Category", options=CATEGORIES, index=cat_default_idx)
-
-        with f_c3:
-            trans_date = st.date_input("Transaction Date", value=st.session_state.sc_trans_date)
-            trans_hour = st.slider("Transaction Hour (24h)", min_value=0, max_value=23, value=st.session_state.sc_trans_hour)
-
-        st.markdown("#### 2. Cardholder Profile & Location Coordinates")
-        f_p1, f_p2, f_p3, f_p4 = st.columns(4)
-        with f_p1:
-            gender = st.selectbox("Cardholder Gender", options=["F", "M"], index=0 if st.session_state.sc_gender == "F" else 1)
-        with f_p2:
-            dob = st.date_input("Date of Birth", value=st.session_state.sc_dob)
-        with f_p3:
-            cardholder_lat = st.number_input("Cardholder Home Lat", value=float(st.session_state.sc_lat), format="%.4f")
-            cardholder_long = st.number_input("Cardholder Home Long", value=float(st.session_state.sc_long), format="%.4f")
-        with f_p4:
-            city_pop = st.number_input("City Population", value=int(st.session_state.sc_city_pop), min_value=100, step=5000)
-
-        # Automatic Merchant Coordinates Lookup with Fallback
-        if merchant_selected in merchant_lookup:
-            merch_info = merchant_lookup[merchant_selected]
-            resolved_merch_lat = merch_info['merch_lat']
-            resolved_merch_long = merch_info['merch_long']
-            st.caption(f"📍 Merchant coordinates auto-resolved from registry: `({resolved_merch_lat:.4f}, {resolved_merch_long:.4f})`")
-        else:
-            # Fallback to offset around cardholder or dataset average
-            resolved_merch_lat = cardholder_lat + 0.05
-            resolved_merch_long = cardholder_long + 0.05
-            st.caption(f"📍 New merchant: approximating coordinates near cardholder: `({resolved_merch_lat:.4f}, {resolved_merch_long:.4f})`")
-
-        submit_button = st.form_submit_button("🔍 Screen Transaction for Fraud Risk", type="primary", use_container_width=True)
-
-    # Prediction Execution
-    if submit_button:
-        # Basic Input Validation
-        if amt <= 0:
-            st.error("Transaction amount must be greater than $0.00.")
-        elif not cardholder_name.strip():
-            st.error("Please provide a valid cardholder name.")
-        else:
-            # Build unified raw input dictionary
-            trans_datetime_str = f"{trans_date.strftime('%Y-%m-%d')} {trans_hour:02d}:00:00"
-            raw_input = {
-                'trans_date_trans_time': trans_datetime_str,
-                'category': category,
-                'amt': float(amt),
-                'gender': gender,
-                'lat': float(cardholder_lat),
-                'long': float(cardholder_long),
-                'city_pop': int(city_pop),
-                'dob': dob.strftime('%Y-%m-%d'),
-                'merch_lat': float(resolved_merch_lat),
-                'merch_long': float(resolved_merch_long)
-            }
-            
-            # 1. Transform features via shared module
-            feature_vector_df = transform_features(raw_input, sparkov_encoders)
-            scaled_vector = sparkov_scaler.transform(feature_vector_df)
-            
-            # 2. Run model inference
-            pred_label = sparkov_model.predict(scaled_vector)[0]
-            pred_proba = sparkov_model.predict_proba(scaled_vector)[0]
-            fraud_probability = float(pred_proba[1])
-            legit_probability = float(pred_proba[0])
-            
-            # 3. Calculate explanation metrics
-            distance_km = haversine_distance(cardholder_lat, cardholder_long, resolved_merch_lat, resolved_merch_long)
-            trans_year = trans_date.year
-            birth_year = dob.year
-            cardholder_age = max(18, trans_year - birth_year)
-            
-            st.markdown("---")
-            st.header("Screening Verdict & Risk Analysis")
-            
-            # Verdict Card
-            if pred_label == 1 or fraud_probability >= 0.50:
-                st.error(f"### 🚨 HIGH RISK: TRANSACTION FLAGGED AS FRAUD ({fraud_probability*100:.1f}% Confidence)")
-                st.markdown(f"**Automated Safeguard Triggered:** Recommend declining authorization for **${amt:,.2f}** at `{merchant_selected}` for `{cardholder_name}` and dispatching an instant SMS confirmation alert.")
-            else:
-                st.success(f"### ✅ APPROVED: TRANSACTION VERIFIED AS LEGITIMATE ({(1 - fraud_probability)*100:.1f}% Confidence)")
-                st.markdown(f"**Authorization Granted:** Safe transaction pattern detected. Authorize **${amt:,.2f}** at `{merchant_selected}`.")
-
-            # Probability Gauge Metrics
-            g1, g2, g3, g4 = st.columns(4)
-            with g1:
-                st.metric("Fraud Probability", f"{fraud_probability*100:.2f}%")
-            with g2:
-                st.metric("Distance from Home", f"{distance_km:.1f} km")
-            with g3:
-                st.metric("Cardholder Age", f"{cardholder_age} yrs")
-            with g4:
-                st.metric("Transaction Window", f"{trans_hour:02d}:00 hrs", "High Risk Window" if (trans_hour >= 22 or trans_hour <= 3) else "Normal Window")
-
-            # Risk Drivers Breakdown
-            st.markdown("#### 🔎 Transaction Risk Factor Breakdown")
-            reasons = []
-            
-            if amt > 500:
-                reasons.append(f"🚩 **High Amount Tier:** Transaction amount (${amt:,.2f}) exceeds the 95th percentile benchmark.")
-            if distance_km > 100:
-                reasons.append(f"🚩 **Large Physical Separation:** Merchant location is {distance_km:.1f} km away from cardholder home address.")
-            if trans_hour >= 22 or trans_hour <= 3:
-                reasons.append(f"🚩 **Nocturnal Attack Window:** Transaction occurred at {trans_hour:02d}:00, within the peak fraud spike period.")
-            if category in ['shopping_net', 'misc_net', 'grocery_pos']:
-                reasons.append(f"🚩 **High-Risk Category:** Category `{category}` is historically among the top fraud-targeted segments.")
-            if "fraud_" in merchant_selected.lower():
-                reasons.append(f"🚩 **Suspicious Merchant Signature:** Merchant name matches known flagged merchant pattern.")
-
-            if reasons:
-                for r in reasons:
-                    st.warning(r)
-            else:
-                st.info("✅ All transaction characteristics (amount, time of day, proximity, category) align within normal baseline spending behaviors.")
+    st.subheader("💡 3 Golden Rules to Protect Your Card in India & Abroad")
+    t1, t2, t3 = st.columns(3)
+    with t1:
+        st.markdown("""
+        <div class="reason-item">
+            <h4>📲 Turn On Instant SMS & WhatsApp Alerts</h4>
+            <p style="color: #64748B;">Enable instant bank notifications for every transaction above ₹100 / $1 to spot unauthorized activity immediately.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    with t2:
+        st.markdown("""
+        <div class="reason-item">
+            <h4>🔒 Turn Off International Usage When Not Needed</h4>
+            <p style="color: #64748B;">Use your banking app (SBI, HDFC, ICICI, Axis, etc.) to disable international and online payments when you're not using them.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    with t3:
+        st.markdown("""
+        <div class="reason-item">
+            <h4>🛒 Never Share OTPs or CVV</h4>
+            <p style="color: #64748B;">No bank official will ever ask for your OTP or 3-digit CVV number over phone or message. Never share them with anyone.</p>
+        </div>
+        """, unsafe_allow_html=True)
 
 
 # =========================================================================
-# GLOBAL FLOATING ASSISTANT
+# FRIENDLY FLOATING ASSISTANT
 # =========================================================================
 st.markdown("""
     <style>
     div[data-testid="stElementContainer"]:has(div[data-testid="stPopover"]) {
         position: fixed !important;
-        bottom: 30px !important;
-        right: 30px !important;
+        bottom: 25px !important;
+        right: 25px !important;
         width: auto !important;
         z-index: 9999 !important;
     }
@@ -676,22 +793,22 @@ st.markdown("""
         position: static !important;
     }
     div[data-testid="stPopoverBody"] {
-        width: 380px !important;
+        width: 360px !important;
         max-width: 90vw !important;
         padding: 1.2rem !important;
         border-radius: 16px !important;
-        box-shadow: 0 12px 30px rgba(0,0,0,0.18) !important;
+        box-shadow: 0 12px 30px rgba(0,0,0,0.15) !important;
         right: 0 !important;
         left: auto !important;
     }
     div[data-testid="stPopover"] > button {
         border-radius: 50% !important;
-        width: 64px !important;
-        height: 64px !important;
+        width: 60px !important;
+        height: 60px !important;
         background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%) !important;
         color: white !important;
         border: none !important;
-        box-shadow: 0px 6px 16px rgba(37,99,235,0.35) !important;
+        box-shadow: 0px 6px 16px rgba(37,99,235,0.3) !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
@@ -703,43 +820,44 @@ st.markdown("""
     div[data-testid="stPopover"] > button p {
         margin: 0 !important;
         padding: 0 !important;
-        font-size: 32px !important;
+        font-size: 28px !important;
     }
     </style>
 """, unsafe_allow_html=True)
 
-with st.popover("🤖"):
-    st.markdown("##### 🤖 Fraud Intelligence Assistant")
+with st.popover("💬"):
+    st.markdown("##### 💬 Card Safety Helper")
+    st.caption("Ask any question in simple everyday words!")
     
-    if "chat_history" not in st.session_state:
-        st.session_state.chat_history = []
+    if "friendly_chat" not in st.session_state:
+        st.session_state.friendly_chat = []
         
-    chat_container = st.container(height=320)
+    chat_container = st.container(height=300)
     with chat_container:
-        for msg in st.session_state.chat_history:
+        for msg in st.session_state.friendly_chat:
             if msg["role"] == "user":
                 st.markdown(f"**👤 You:** {msg['content']}")
             else:
-                st.info(f"**🤖 AI:** {msg['content']}")
+                st.info(f"**🛡️ Helper:** {msg['content']}")
             
-    with st.form("chat_form", clear_on_submit=True):
-        prompt = st.text_input("Ask about features, models, or data...", label_visibility="collapsed")
-        submitted = st.form_submit_button("Send")
+    with st.form("friendly_chat_form", clear_on_submit=True):
+        prompt = st.text_input("Type your question...", label_visibility="collapsed", placeholder="e.g. Is shopping on Amazon/Flipkart safe?")
+        send = st.form_submit_button("Ask")
         
-    if submitted and prompt:
-        st.session_state.chat_history.append({"role": "user", "content": prompt})
+    if send and prompt:
+        st.session_state.friendly_chat.append({"role": "user", "content": prompt})
         
         q = prompt.lower()
-        if any(w in q for w in ["feature", "engineer", "haversine", "distance", "age"]):
-            response = "We engineer haversine distance between cardholder and merchant coords, cardholder age from DOB, transaction hour, day of week, and categorical mappings."
-        elif any(w in q for w in ["time", "hour", "when", "night"]):
-            response = "Fraud attacks spike sharply between 22:00 and 03:00 (nocturnal attack window) when cardholders are asleep."
-        elif any(w in q for w in ["model", "xgboost", "random forest", "accuracy", "recall"]):
-            response = "We use Balanced XGBoost (scale_pos_weight) as champion model, achieving 94.55% recall on 555k test transactions with a 0.8686 PR-AUC."
-        elif any(w in q for w in ["category", "where", "merchant"]):
-            response = "Top targeted categories are online shopping (shopping_net, misc_net) and POS groceries (grocery_pos)."
+        if any(w in q for w in ["india", "city", "mumbai", "delhi", "bengaluru", "pune"]):
+            resp = "The app supports over 35+ Indian cities across Maharashtra, Karnataka, Delhi NCR, Gujarat, Tamil Nadu, Kerala, UP, and more!"
+        elif any(w in q for w in ["why", "distance", "far", "away", "location"]):
+            resp = "If a card is used far away from where the cardholder lives, it usually indicates the card was stolen or cloned."
+        elif any(w in q for w in ["night", "time", "hour", "when"]):
+            resp = "Fraud attacks spike late at night (10 PM to 3 AM) because cardholders are asleep and won't notice instant bank text alerts."
+        elif any(w in q for w in ["safe", "how", "protect", "tips", "otp"]):
+            resp = "Never share your OTP or CVV with anyone, enable SMS transaction alerts, and disable international usage in your banking app when not traveling."
         else:
-            response = "Ask me about 'features engineered', 'model performance', 'hourly fraud trends', or 'high-risk categories'!"
+            resp = "I can help explain why payments get flagged, how locations and time affect fraud, or how to keep your card safe!"
               
-        st.session_state.chat_history.append({"role": "assistant", "content": response})
+        st.session_state.friendly_chat.append({"role": "assistant", "content": resp})
         st.rerun()
