@@ -1,0 +1,115 @@
+{
+    "dataset_name": "Indian UPI Transactions (2024 Dataset)",
+    "total_transactions": 250000,
+    "legit_transactions": 249520,
+    "fraud_transactions": 480,
+    "fraud_rate_percentage": 0.192,
+    "imbalance_ratio": "519:1",
+    "top_risky_states": [
+        {
+            "sender_state": "Karnataka",
+            "total": 29756,
+            "fraud": 69,
+            "fraud_rate_pct": 0.2318860061836268
+        },
+        {
+            "sender_state": "Rajasthan",
+            "total": 19981,
+            "fraud": 46,
+            "fraud_rate_pct": 0.23021870777238376
+        },
+        {
+            "sender_state": "Gujarat",
+            "total": 20061,
+            "fraud": 43,
+            "fraud_rate_pct": 0.21434624395593438
+        },
+        {
+            "sender_state": "Delhi",
+            "total": 24870,
+            "fraud": 50,
+            "fraud_rate_pct": 0.2010454362685967
+        },
+        {
+            "sender_state": "Maharashtra",
+            "total": 37427,
+            "fraud": 71,
+            "fraud_rate_pct": 0.1897026211024127
+        }
+    ],
+    "top_risky_categories": [
+        {
+            "merchant_category": "Transport",
+            "total": 20105,
+            "fraud": 43,
+            "fraud_rate_pct": 0.21387714498880875
+        },
+        {
+            "merchant_category": "Education",
+            "total": 7598,
+            "fraud": 16,
+            "fraud_rate_pct": 0.21058173203474598
+        },
+        {
+            "merchant_category": "Shopping",
+            "total": 29872,
+            "fraud": 62,
+            "fraud_rate_pct": 0.20755222281735405
+        },
+        {
+            "merchant_category": "Other",
+            "total": 24828,
+            "fraud": 50,
+            "fraud_rate_pct": 0.20138553246334784
+        },
+        {
+            "merchant_category": "Entertainment",
+            "total": 20103,
+            "fraud": 40,
+            "fraud_rate_pct": 0.19897527732179277
+        }
+    ],
+    "top_risky_banks": [
+        {
+            "sender_bank": "Kotak",
+            "total": 20032,
+            "fraud": 50,
+            "fraud_rate_pct": 0.24960063897763576
+        },
+        {
+            "sender_bank": "ICICI",
+            "total": 29769,
+            "fraud": 66,
+            "fraud_rate_pct": 0.22170714501662803
+        },
+        {
+            "sender_bank": "PNB",
+            "total": 24946,
+            "fraud": 52,
+            "fraud_rate_pct": 0.20845025254549826
+        },
+        {
+            "sender_bank": "IndusInd",
+            "total": 25173,
+            "fraud": 52,
+            "fraud_rate_pct": 0.2065705319191197
+        },
+        {
+            "sender_bank": "Axis",
+            "total": 25042,
+            "fraud": 49,
+            "fraud_rate_pct": 0.19567127226259884
+        }
+    ],
+    "hourly_insights": {
+        "peak_fraud_rate_hours": [
+            3,
+            1,
+            15,
+            22,
+            0
+        ],
+        "late_night_fraud_rate": 0.198,
+        "daytime_fraud_rate": 0.192
+    }
+}

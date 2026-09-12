@@ -1,0 +1,4 @@
+Model,Precision,Recall,F1-Score,ROC-AUC,PR-AUC,True Positives (Caught),False Positives (Alarms),False Negatives (Missed),True Negatives
+Balanced Random Forest,0.0,0.0,0.0,0.4796,0.0018,0,6,96,49898
+Balanced XGBoost,0.004,0.0104,0.0058,0.4449,0.0018,1,246,95,49658
+Tuned XGBoost,0.0,0.0,0.0,0.4439,0.0017,0,0,96,49904
