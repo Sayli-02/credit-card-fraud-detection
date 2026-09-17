@@ -4,7 +4,10 @@ import numpy as np
 import joblib
 import json
 import os
-import shap
+try:
+    import shap
+except ImportError:
+    shap = None
 from datetime import datetime, date
 
 # Import shared feature engineering logic and schema
@@ -201,10 +204,12 @@ def load_app_assets():
             'category_median_distance': {}
         }
     
-    try:
-        explainer = shap.TreeExplainer(model)
-    except Exception:
-        explainer = None
+    explainer = None
+    if shap is not None:
+        try:
+            explainer = shap.TreeExplainer(model)
+        except Exception:
+            explainer = None
         
     return model, scaler, encoders, merchants, dist_stats, explainer
 
