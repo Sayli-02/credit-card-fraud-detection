@@ -825,19 +825,25 @@ with tab2:
             amount = st.number_input("Transaction Amount (₹ / $)", value=float(st.session_state.usr_amt), min_value=1.0, step=100.0, format="%.2f", help="Nominal purchase amount")
             
         with r1_c2:
-            # Merchant Selector
-            cur_merch = st.session_state.usr_merchant
-            merch_idx = ALL_MERCHANT_OPTIONS.index(cur_merch) if cur_merch in ALL_MERCHANT_OPTIONS else 0
-            selected_merchant = st.selectbox("Store / Merchant Name", options=ALL_MERCHANT_OPTIONS, index=merch_idx, help="Merchant name. Unregistered stores automatically resolve to category statistical median distance.")
-            
+            # Merchant - free text input with suggestions shown as helper
+            popular_suggestions = ", ".join(POPULAR_STORES[:6])
+            selected_merchant = st.text_input(
+                "Store / Merchant Name",
+                value=st.session_state.usr_merchant,
+                help=f"Type any merchant name — known or unknown. Suggestions: {popular_suggestions}. Unregistered merchants automatically resolve to category statistical median distance.",
+                placeholder="e.g. Amazon, Local Kirana, Any Store Name…"
+            )
+            if not selected_merchant.strip():
+                selected_merchant = "Other / Unregistered Merchant"
+
             # Category with plain labels
             cat_keys = list(CATEGORY_LABELS.keys())
             cur_cat = st.session_state.usr_category if st.session_state.usr_category in cat_keys else cat_keys[0]
             cat_idx = cat_keys.index(cur_cat)
             
             selected_category_key = st.selectbox(
-                "Transaction Category", 
-                options=cat_keys, 
+                "Transaction Category",
+                options=cat_keys,
                 format_func=lambda k: CATEGORY_LABELS[k],
                 index=cat_idx,
                 help="Merchant business classification"
@@ -851,23 +857,51 @@ with tab2:
         """, unsafe_allow_html=True)
 
         r2_c1, r2_c2, r2_c3 = st.columns(3)
-        
+
         with r2_c1:
+            # Build a short suggestion hint (first 8 Indian cities)
             city_names = list(ALL_LOCATIONS.keys())
-            cur_city = st.session_state.usr_city if st.session_state.usr_city in city_names else city_names[0]
-            chosen_city = st.selectbox("Cardholder Home Location", options=city_names, index=city_names.index(cur_city), help="City or state where cardholder resides")
-            
-            if chosen_city != "📍 Custom / Enter Coordinates Manually":
-                home_lat = ALL_LOCATIONS[chosen_city]["lat"]
-                home_long = ALL_LOCATIONS[chosen_city]["long"]
-                home_pop = ALL_LOCATIONS[chosen_city]["pop"]
+            city_suggestions_hint = ", ".join(
+                [c.split("🇮🇳 ")[-1].split(",")[0] for c in city_names if "🇮🇳" in c][:8]
+            )
+
+            typed_city = st.text_input(
+                "Cardholder Home Location",
+                value=st.session_state.usr_city.replace("📍 Custom / Enter Coordinates Manually", "").strip(),
+                help=f"Type any city or location. Suggestions: {city_suggestions_hint}, etc. If not found in our list, set coordinates below.",
+                placeholder="e.g. Mumbai, Delhi, Pune, Singapore…"
+            )
+
+            # Try to find an exact or partial match in ALL_LOCATIONS
+            matched_city_key = None
+            if typed_city.strip():
+                typed_lower = typed_city.strip().lower()
+                # 1. Exact match
+                for k in city_names:
+                    if typed_lower == k.lower() or typed_lower in k.lower():
+                        matched_city_key = k
+                        break
+
+            if matched_city_key:
+                home_lat = ALL_LOCATIONS[matched_city_key]["lat"]
+                home_long = ALL_LOCATIONS[matched_city_key]["long"]
+                home_pop = ALL_LOCATIONS[matched_city_key]["pop"]
+                st.caption(f"📍 Matched: {matched_city_key.split(' ', 1)[-1]} — Lat {home_lat:.4f}, Long {home_long:.4f}")
             else:
+                # Unknown city — fall back to Mumbai and let user adjust
+                st.caption("📍 Location not in our database. Using default coordinates below — adjust if needed.")
+                home_lat = float(st.session_state.usr_lat)
+                home_long = float(st.session_state.usr_long)
+                home_pop = int(st.session_state.usr_pop)
+
+            # Always show lat/long overrides for full flexibility
+            with st.expander("🗺️ Override Coordinates (optional)", expanded=(matched_city_key is None)):
                 c_lat_col, c_lon_col = st.columns(2)
                 with c_lat_col:
-                    home_lat = st.number_input("Latitude", value=float(st.session_state.usr_lat), format="%.4f")
+                    home_lat = st.number_input("Latitude", value=home_lat, format="%.4f", key="override_lat")
                 with c_lon_col:
-                    home_long = st.number_input("Longitude", value=float(st.session_state.usr_long), format="%.4f")
-                home_pop = int(st.session_state.usr_pop)
+                    home_long = st.number_input("Longitude", value=home_long, format="%.4f", key="override_long")
+                home_pop = st.number_input("City Population (approx.)", value=home_pop, min_value=1000, step=100000, key="override_pop")
 
         with r2_c2:
             purchase_date = st.date_input("Date of Purchase", value=st.session_state.usr_date, help="Date when transaction was initiated")
@@ -920,7 +954,7 @@ with tab2:
         else:
             try:
                 # Convert amount to benchmark equivalent scale for model (approx 1 USD ~ 80 INR for standard scale)
-                is_inr = ("🇮🇳" in chosen_city) or (amount > 1000)
+                is_inr = ("🇮🇳" in typed_city) or (amount > 1000)
                 norm_amt = (amount / 80.0) if is_inr else amount
                 
                 date_time_str = f"{purchase_date.strftime('%Y-%m-%d')} {purchase_hour:02d}:00:00"
@@ -1005,7 +1039,7 @@ with tab2:
                 st.markdown(f"""
                 <div class="stat-card">
                     <div class="stat-title">Merchant Proximity</div>
-                    <div class="stat-number" style="font-size: 1.25rem;">{chosen_city.split(',')[0]}</div>
+                    <div class="stat-number" style="font-size: 1.25rem;">{typed_city.split(',')[0] if typed_city else 'Unknown'}</div>
                     <div class="stat-desc">{'Local in-city store' if distance_km < 30 else f'~{distance_km:.0f} km away'}</div>
                 </div>
                 """, unsafe_allow_html=True)
